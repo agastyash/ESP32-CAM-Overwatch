@@ -3,8 +3,8 @@ A flexible, reliable, one-time setup ESP32-CAM web-streaming server.
 
 ## Current Outline
 - Based on FreeRTOS
-- MJPEG Streaming framework from arkhipenko's (MJPEG single-client streaming server)[https://github.com/arkhipenko/esp32-cam-mjpeg/]
-- OTA update capable (based on (Espressif's OTAWebUpdater sketch)[https://docs.espressif.com/projects/arduino-esp32/en/latest/ota_web_update.html])
+- MJPEG Streaming framework from arkhipenko's [MJPEG single-client streaming server](https://github.com/arkhipenko/esp32-cam-mjpeg/)
+- OTA update capable (based on [Espressif's OTAWebUpdater sketch](https://docs.espressif.com/projects/arduino-esp32/en/latest/ota_web_update.html))
 - Supports configurations for:
   - AI Thinker ESP32-CAM
   - ESP32-WROVER CAM
