@@ -1,8 +1,8 @@
 // Select your camera model in the main file (I only have access to the AI Thinker module and have not tested with the rest)
 
 #define ONBOARD_LED         33
-#define PUSHBUTTON1         16
-#define SENSOR1             17
+// #define PUSHBUTTON1         16
+// #define SENSOR1             17
 
 #if defined(CAMERA_MODEL_WROVER_KIT)
   #define PWDN_GPIO_NUM    -1
