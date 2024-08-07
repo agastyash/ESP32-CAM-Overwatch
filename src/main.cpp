@@ -30,7 +30,7 @@
 // Reset-surviving definition for camera resolution, potentially to be shifted to an SD card/EEPROM instead
 // 0-6, lower means higher resolution, defaults to VGA if not defined
 // TODO: Add function to control this using a dropdown on a web page
-RTC_NOINIT_ATTR uint8_t qualityPreset;
+RTC_NOINIT_ATTR uint8_t qualityPreset = 0;
 
 // Task running on same core as system tasks for future additions
 TaskHandle_t Task0;
@@ -64,8 +64,8 @@ void handleNotFound();
 
 void render_login_page(void);
 void render_update_page(void);
-void render_update_status(void);
-void upload_update(void);
+void perform_update(void);
+void finish_update(void);
 
 // MJPEG Streaming
 
@@ -73,8 +73,16 @@ camera_config_t camera_config_helper(uint8_t qualityPreset); // Mode variable: 0
 void handle_jpg(void);
 void handle_jpg_stream(void);
 
+// Skeleton code for on-the-fly quality and resolution tweaking
+// void render_dashboard(void);
+// void modify_config(void);
+
 // Hand smaller tasks to the system core
 void Task0Code(void * pvParameters);
+
+//////////////////////////
+//         Setup        //
+//////////////////////////
 
 void setup(void)
 {
@@ -121,7 +129,10 @@ void setup(void)
   // OTA Update pages (login on index, upload page upon login, update page upon upload)
   server.on("/", HTTP_GET, render_login_page);
   server.on("/serverIndex", HTTP_GET, render_update_page);
-  server.on("/update", HTTP_POST, upload_update, render_update_status);
+  server.on("/update", HTTP_POST, finish_update, perform_update);
+  // On-the-fly quality and config updates
+  // server.on("/dash", HTTP_GET, render_dashboard);
+  // server.on("/reconfig", HTTP_POST, modify_config);
   // MJPEG Streaming Server pages (Stream and Still)
   server.on("/mjpeg", HTTP_GET, handle_jpg_stream);
   server.on("/jpg", HTTP_GET, handle_jpg);
@@ -143,12 +154,19 @@ void setup(void)
   server.begin();
 }
 
-void Task0Code(void * pvParameters) {
+//////////////////////////
+// Function Definitions //
+//////////////////////////
+
+void Task0Code(void * pvParameters)
+{
   vTaskDelete(NULL);
   // Nothing for now lol
 }
 
-void loop(void) {
+// Main loop automatically assigned to core 1
+void loop(void)
+{
   server.handleClient();
   delay(1);
 }
@@ -171,14 +189,14 @@ void render_update_page(void)
   #endif
 }
 
-void upload_update(void)
+void finish_update(void)
 {
   server.sendHeader("Connection", "close");
   server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
   ESP.restart();
 }
 
-void render_update_status(void)
+void perform_update(void)
 {
   HTTPUpload& upload = server.upload();
   if (upload.status == UPLOAD_FILE_START)
@@ -338,6 +356,23 @@ void IRAM_ATTR postNotification()
   #endif
   http.end();
 }
+
+/*
+void render_dashboard(void)
+{
+  server.sendHeader("Connection", "close");
+  const char* dashboardIndex = "";
+  server.send(200, "text/html", dashboardIndex);
+  #ifdef DEBUG
+    Serial.println("Dashboard page rendered.");
+  #endif
+}
+
+void modify_config(void)
+{
+  String postData = server.arg(server.args() - 1);
+}
+*/
 
 camera_config_t camera_config_helper(uint8_t qualityPreset)
 {
