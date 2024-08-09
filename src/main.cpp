@@ -13,6 +13,25 @@
 // OTA update libraries
 #include <Update.h>
 #include <OTA.h> // default login is admin:admin
+// SSD1306 Libraries
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_SSD1306.h>
+#include <Adafruit_GFX.h>
+// Custom OLED Helper library
+#include <OLED.h>
+
+// SSD1306 OLED Setup
+#define SCREEN_WIDTH 128 // OLED display width
+#define SCREEN_HEIGHT 64 // OLED display height
+#define OLED_RESET    -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define MAX_CHARS     21 // Max characters to render before running a scrolling text function on displayed text
+// SDA/SCL pins can be pre-defined for some boards by the Wire library
+#define SDA           15 // SDA Pin
+#define SCL           14 // SCL Pin
+
+// I2C connection with SSD1306
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Uncomment to turn serial output into a yapper
 #define DEBUG
@@ -28,9 +47,30 @@
 #include <secret.h>
 
 // Reset-surviving definition for camera resolution, potentially to be shifted to an SD card/EEPROM instead
-// 0-6, lower means higher resolution, defaults to VGA if not defined
 // TODO: Add function to control this using a dropdown on a web page
-RTC_NOINIT_ATTR uint8_t qualityPreset = 0;
+RTC_NOINIT_ATTR uint8_t qualityPreset = 8; // default = VGA
+/*
+  Possible values (lowest to highest resolution possible, corresponding to the enum framesize_t:
+    5  FRAMESIZE_QVGA,     // 320x240
+    8  FRAMESIZE_VGA,      // 640x480
+    9  FRAMESIZE_SVGA,     // 800x600
+    10 FRAMESIZE_XGA,      // 1024x768
+    11 FRAMESIZE_HD,       // 1280x720
+    12 FRAMESIZE_SXGA,     // 1280x1024
+    13 FRAMESIZE_UXGA,     // 1600x1200
+*/
+
+
+// Uptime counter (TODO: Upgrade to a web synced clock)
+uint8_t uptimeHours = 0;
+uint16_t uptimeDays = 0;
+unsigned long prevMillis;
+
+// Client counter
+uint8_t clientCount = 0;
+
+// Wifi status code
+// uint8_t wifiStatus = 0;
 
 // Task running on same core as system tasks for future additions
 TaskHandle_t Task0;
@@ -48,7 +88,7 @@ WebServer server(80);
 // Function definitions //
 //////////////////////////
 
-// Function to enable the use of the onboard LED as an indicator for OTA flashing status
+// Function to enable the use of the onboard LED as status indicator
 void LED_indicate(int code);
 
 // Push button function(s)
@@ -105,14 +145,42 @@ void setup(void)
   attachInterrupt(SENSOR1, postNotification, CHANGE);
   #endif
 
-  cam.init(camera_config_helper(qualityPreset));
+  // initialize OLED display with I2C address 0x3C
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("failed to start SSD1306 OLED"));
+    LED_indicate(1);
+    while (1);
+  }
+
+  #ifdef DEBUG
+    Serial.println("SSD1306 successfully connected.");
+  #endif
+
+  delay(1000); // Breathing room
+
+  if (!cam.init(camera_config_helper(qualityPreset)))
+  {
+    #ifdef DEBUG
+      Serial.println("Camera failed to initialize.");
+    #endif
+    while (1);
+  }
+  #ifdef DEBUG
+    Serial.println("Camera initialized.");
+  #endif
+
+  delay(2000); // Breathing room
 
   // Connect to WiFi network
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED)
   {
+    #ifdef DEBUG
+      Serial.print(".");
+    #endif
     delay(500);
   }
+  // wifiStatus = 1;
   LED_indicate(0);
   #ifdef DEBUG
     Serial.println();
@@ -149,9 +217,32 @@ void setup(void)
   delay(500);
   #ifdef DEBUG
     Serial.println("Setup complete.");
-  #endif 
+  #endif
+
+  // Take a deep breath before diving into the SSD1306 library
+  delay(2000);
+  
+  #ifdef DEBUG
+    Serial.println("Pushing SSD1306 updates.");
+  #endif
+  // Clear screen and set static properties
+  display.clearDisplay(); // clear display
+  display.setTextColor(WHITE);
+  // Push the screen constants to the custom OLED library
+  initializeDisplay(SCREEN_WIDTH, SCREEN_HEIGHT, MAX_CHARS);
+  // Render the static and dynamic parts of the display
+  renderStaticProperties(display, qualityPreset, host);
+  updateStats(display, clientCount, uptimeHours, uptimeDays, WiFi.status() == WL_CONNECTED);
+  #ifdef DEBUG
+    Serial.println("SSD1306 initial rendering complete.");
+  #endif
+
+  delay(1000); // Breathing room
 
   server.begin();
+  #ifdef DEBUG
+    Serial.println("Server configured and ready for requests.");
+  #endif
 }
 
 //////////////////////////
@@ -160,8 +251,22 @@ void setup(void)
 
 void Task0Code(void * pvParameters)
 {
-  vTaskDelete(NULL);
-  // Nothing for now lol
+  // Every 1h update the hours (and days) counters
+  unsigned long timeDiff = millis() - prevMillis;
+  if (timeDiff >= 3600000)
+  {
+    prevMillis = millis();
+    uptimeHours++;
+    if (uptimeHours >= 24)
+    {
+      uptimeHours = 0;
+      uptimeDays++;
+    }
+  }
+  // Update the display with the new stats
+  updateStats(display, clientCount, uptimeHours, uptimeDays, WiFi.status() == WL_CONNECTED);
+  delay(29000); // Let core 0 breathe
+  // vTaskDelete(NULL); // Nuke this task from core 0
 }
 
 // Main loop automatically assigned to core 1
@@ -250,16 +355,20 @@ void handle_jpg_stream(void)
   client.write(HEADER, hdrLen);
   client.write(BOUNDARY, bdrLen);
 
+  clientCount = 1;
   #ifdef DEBUG
-    Serial.println("Serving MJPEG stream now.");
+    Serial.printf("Client count updated to %d\n", clientCount);
+    Serial.println("Serving MJPEG stream to a new client now.");
   #endif
 
   while (true)
   {
     if (!client.connected())
     {
+      clientCount = 0;
       #ifdef DEBUG
-        Serial.println("Client disconnected, MJPEG stream killed.");
+        Serial.printf("Client count updated to %d\n", clientCount);
+        Serial.println("Clients disconnected, MJPEG stream killed.");
       #endif
       break;
     }
@@ -397,27 +506,11 @@ camera_config_t camera_config_helper(uint8_t qualityPreset)
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  switch(qualityPreset)
-  {
-    case 0: // Max quality
-      config.frame_size = FRAMESIZE_UXGA;
-    case 1:
-      config.frame_size = FRAMESIZE_SXGA;
-    case 2:
-      config.frame_size = FRAMESIZE_XGA;
-    case 3:
-      config.frame_size = FRAMESIZE_SVGA;
-    case 4:
-      config.frame_size = FRAMESIZE_VGA;
-    case 5:
-      config.frame_size = FRAMESIZE_CIF;
-    case 6: // Lowest quality
-      config.frame_size = FRAMESIZE_QVGA;
-    default:
-      config.frame_size = FRAMESIZE_VGA;
-  }
+
+  /* Reference paste */
+  config.frame_size = (framesize_t) qualityPreset;
   // config.frame_size = FRAMESIZE_VGA;
-  config.jpeg_quality = 12; // Lower JPEG quality (higher corresponding number) for videos
+  config.jpeg_quality = 12;
   // config.jpeg_quality = 12;
   config.fb_count = 2;
   return config;
