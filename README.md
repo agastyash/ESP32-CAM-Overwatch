@@ -12,11 +12,11 @@ A flexible, reliable, one-time setup ESP32-CAM web-streaming server.
 - Tested on:
   - AI Thinker ESP32-CAM
 - Template interrupts for HTTP POST notifications and hardware buttons
+- 128x64 SSD1306 support
 
 ## Planned Additions
 - On-the-fly resolution and quality control using predefined presets
 - Hardware additions
-  - 128x64 SSD1306 support
   - 3-button control scheme
   - 3D-printable housing for the camera
 - Software additions
